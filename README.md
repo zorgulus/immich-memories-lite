@@ -31,6 +31,8 @@ Trade-off: this does one thing (a single daily "on this day" slideshow). It does
 ## Setup
 
 ```bash
+git clone https://github.com/zorgulus/immich-memories-lite.git
+cd immich-memories-lite
 docker build -t immich-memories-lite:latest .
 ```
 
