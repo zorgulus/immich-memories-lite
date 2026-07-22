@@ -1,0 +1,42 @@
+#!/bin/bash
+# Example daily driver: generate a memory video, notify via ntfy with a native
+# deep link, and purge old non-favorited videos. Adjust paths/topics for your setup.
+set -euo pipefail
+
+LOG=/opt/immich-memories-lite/generate.log
+STATE_FILE=/opt/immich-memories-lite/generated-assets.log
+NTFY_TOPIC=your-ntfy-topic
+OUTPUT_DIR=/path/to/immich/library/Memories
+IMMICH_API_KEY="$(cat /opt/immich-memories-lite/api_key.txt)"
+IMMICH_URL=http://localhost:2283
+
+echo "===== $(date '+%Y-%m-%d %H:%M:%S') GENERATE START =====" >> "$LOG"
+docker run --rm --network host \
+  -e IMMICH_API_KEY="$IMMICH_API_KEY" \
+  -e IMMICH_URL="$IMMICH_URL" \
+  -v "$OUTPUT_DIR":/app/output \
+  immich-memories-lite:latest >> "$LOG" 2>&1
+EXIT_CODE=$?
+echo "===== $(date '+%Y-%m-%d %H:%M:%S') GENERATE END (exit $EXIT_CODE) =====" >> "$LOG"
+
+if [ $EXIT_CODE -eq 0 ]; then
+  ASSET_ID=$(tail -100 "$LOG" | grep -oP 'Uploaded to Immich: asset=\K[a-f0-9-]+' | tail -1)
+  if [ -n "$ASSET_ID" ]; then
+    VIDEO_URL="immich://asset?id=${ASSET_ID}"
+    curl -s -H "Click: ${VIDEO_URL}" -H "Title: New memory video" \
+         -d "A new memory video is ready, tap to view" \
+         "ntfy.sh/${NTFY_TOPIC}" >/dev/null
+    echo "$(date '+%Y-%m-%d') ${ASSET_ID}" >> "$STATE_FILE"
+  fi
+fi
+
+# Purge videos older than RETENTION_DAYS, unless favorited in Immich.
+touch "$STATE_FILE"
+docker run --rm --network host \
+  -e IMMICH_API_KEY="$IMMICH_API_KEY" \
+  -e IMMICH_URL="$IMMICH_URL" \
+  -e RETENTION_DAYS=7 \
+  -e STATE_FILE=/state/generated-assets.log \
+  -v "$STATE_FILE":/state/generated-assets.log \
+  --entrypoint python3 \
+  immich-memories-lite:latest /app/purge.py >> "$LOG" 2>&1
